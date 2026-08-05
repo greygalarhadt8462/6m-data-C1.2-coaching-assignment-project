@@ -1,314 +1,650 @@
-import json
-import os
+# ==========================================
+# Singapore Job Market Intelligence Dashboard
+# ==========================================
+from pathlib import Path
 
-import pandas as pd
-import plotly.graph_objects as go
+# Import Libraries
 import streamlit as st
+import pandas as pd
+import plotly.express as px
+#=====================================================
 
-CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "SGJobData_cleaned.csv")
+# ------------------------------------------
+# Page Configuration
+# ------------------------------------------
+st.set_page_config(
+    page_title="Singapore Job Market Data Product",
+    page_icon="📊",
+    layout="wide"
+)
 
-# Palette (validated categorical set, fixed order — see dataviz skill)
-CATEGORICAL_PALETTE = [
-    "#2a78d6",  # blue
-    "#eb6834",  # orange
-    "#1baf7a",  # aqua
-    "#eda100",  # yellow
-    "#e87ba4",  # magenta
-    "#008300",  # green
-    "#4a3aa7",  # violet
-    "#e34948",  # red
-]
-OTHER_COLOR = "#898781"  # muted gray, reserved for the "Other" bucket
-TEXT_PRIMARY = "#0b0b0b"
-SURFACE = "#fcfcfb"
-PIE_TOP_N = 8
+##### To change red tabs  fileters at the left to Blue#
 
-TABLE_COLS = [
-    "postedCompany_name",
-    "positionLevels",
-    "title",
-    "numberOfVacancies",
-    "employmentTypes",
-    "minimumYearsExperience",
-    "salary_maximum",
-    "salary_minimum",
-    "average_salary",
-    "metadata_jobPostId",
-    "metadata_totalNumberJobApplication",
-    "metadata_totalNumberOfView",
-]
+st.markdown("""
+<style>
 
-LOAD_COLS = [
-    "postedCompany_name",
-    "positionLevels",
-    "title",
-    "numberOfVacancies",
-    "salary_maximum",
-    "salary_minimum",
-    "average_salary",
-    "employmentTypes",
-    "categories",
-    "minimumYearsExperience",
-    "status_jobStatus",
-    "metadata_isPostedOnBehalf",
-    "metadata_jobPostId",
-    "metadata_totalNumberJobApplication",
-    "metadata_totalNumberOfView",
-]
+/* Sidebar background */
+section[data-testid="stSidebar"]{
+    background-color:#102A43;
+}
 
-JOB_STATUS_ORDER = ["Open", "Re-open", "Closed"]
+/* Sidebar labels */
+section[data-testid="stSidebar"] label{
+    color:white !important;
+    font-size:17px;
+    font-weight:bold;
+}
 
-st.set_page_config(page_title="SG Job Postings Dashboard", layout="wide")
+/* Selected items (chips/tags) */
+span[data-baseweb="tag"]{
+    background-color:#2E86DE !important;
+    color:white !important;
+    border-radius:8px !important;
+    font-weight:bold;
+}
+
+/* Hover effect */
+span[data-baseweb="tag"]:hover{
+    background-color:#1B4F72 !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
 
 
-@st.cache_data(show_spinner="Loading job data...")
-def load_data(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path, usecols=LOAD_COLS)
 
-    df["categories"] = df["categories"].astype("string").str.strip()
-    df["category_names"] = df["categories"].apply(
-        lambda x: [c["category"] for c in json.loads(x)] if x else []
+
+
+
+# ------------------------------------------
+# Dashboard Title
+# ------------------------------------------
+st.title("📊 Singapore Job Market Intelligence Data Product")
+
+st.markdown("""
+This interactive dashboard analyzes **Singapore's job market** using over **1 million job postings**.
+
+Use the filters on the left to explore salary trends, hiring demand, competition, and application insights across industries.
+
+**Business Questions Answered**
+1. Which industries pay the highest salaries?
+2. Which industries have the greatest hiring demand?
+3. Which industries receive the most applications?
+4. Which industries are hardest to fill?
+5. How has hiring changed over time?
+""")
+
+# ------------------------------------------
+# Load Dataset
+# ------------------------------------------
+from pathlib import Path
+
+@st.cache_data
+def load_data():
+
+    BASE_DIR = Path(__file__).parent
+
+    csv_path = BASE_DIR / "SGJobs_Cleaned_01.csv"
+
+    df = pd.read_csv(csv_path)
+
+    df["metadata_originalPostingDate"] = pd.to_datetime(
+        df["metadata_originalPostingDate"],
+        errors="coerce"
     )
-    df = df.drop(columns=["categories"])
 
     return df
 
+df = load_data()
 
-df = load_data(CSV_PATH)
+# ------------------------------------------
+# Sidebar Filters
+# ------------------------------------------
 
-st.title("SG Job Postings Dashboard")
-st.caption("Filter job postings on the left to explore matching roles.")
+st.sidebar.header("Dashboard Filters")
 
-# ---- Sidebar filters ----
-st.sidebar.header("Filters")
-
-sal_min_bound = int(df["salary_minimum"].min())
-sal_min_upper = int(df["salary_minimum"].max())
-salary_minimum_floor = st.sidebar.number_input(
-    "Salary minimum (at least)",
-    min_value=sal_min_bound,
-    max_value=sal_min_upper,
-    value=sal_min_bound,
-    step=100,
-)
-st.sidebar.caption(f"${salary_minimum_floor:,}")
-
-sal_max_bound = int(df["salary_maximum"].min())
-sal_max_upper = int(df["salary_maximum"].max())
-salary_maximum_ceiling = st.sidebar.number_input(
-    "Salary maximum (at most)",
-    min_value=sal_max_bound,
-    max_value=sal_max_upper,
-    value=sal_max_upper,
-    step=100,
-)
-st.sidebar.caption(f"${salary_maximum_ceiling:,}")
-
-avg_sal_bound = int(df["average_salary"].min())
-avg_sal_upper = int(df["average_salary"].max())
-average_salary_floor = st.sidebar.number_input(
-    "Average salary (at least)",
-    min_value=avg_sal_bound,
-    max_value=avg_sal_upper,
-    value=avg_sal_bound,
-    step=100,
-)
-st.sidebar.caption(f"${average_salary_floor:,}")
-
-employment_types = sorted(df["employmentTypes"].dropna().unique())
-selected_employment_types = st.sidebar.multiselect(
-    "Employment types", options=employment_types, default=[]
+industry = st.sidebar.multiselect(
+    "Select Industry",
+    sorted(df["Industry"].dropna().unique()),
+    default=sorted(df["Industry"].dropna().unique())
 )
 
-all_categories = sorted({c for cats in df["category_names"] for c in cats})
-selected_categories = st.sidebar.multiselect(
-    "Categories", options=all_categories, default=[]
+employment = st.sidebar.multiselect(
+    "Employment Type",
+    sorted(df["employmentTypes"].dropna().unique()),
+    default=sorted(df["employmentTypes"].dropna().unique())
 )
 
-position_levels = sorted(df["positionLevels"].dropna().unique())
-selected_position_levels = st.sidebar.multiselect(
-    "Position levels", options=position_levels, default=[]
+position = st.sidebar.multiselect(
+    "Position Level",
+    sorted(df["positionLevels"].dropna().unique()),
+    default=sorted(df["positionLevels"].dropna().unique())
 )
 
-exp_bound = int(df["minimumYearsExperience"].min())
-exp_upper = int(df["minimumYearsExperience"].max())
-minimum_experience = st.sidebar.number_input(
-    "Minimum years experience (at least)",
-    min_value=exp_bound,
-    max_value=exp_upper,
-    value=exp_bound,
-    step=1,
-)
-maximum_experience = st.sidebar.number_input(
-    "Minimum years experience (at most)",
-    min_value=exp_bound,
-    max_value=exp_upper,
-    value=exp_upper,
-    step=1,
+year = st.sidebar.multiselect(
+    "Posting Year",
+    sorted(df["PostingYear"].dropna().unique()),
+    default=sorted(df["PostingYear"].dropna().unique())
 )
 
-present_statuses = set(df["status_jobStatus"].dropna().unique())
-job_statuses = [s for s in JOB_STATUS_ORDER if s in present_statuses] + sorted(
-    present_statuses - set(JOB_STATUS_ORDER)
-)
-selected_job_statuses = st.sidebar.multiselect(
-    "Job status", options=job_statuses, default=[]
-)
-
-posted_on_behalf = st.sidebar.selectbox(
-    "Posted on behalf", options=["All", "True", "False"], index=0
-)
-
-# ---- Apply filters ----
-mask = pd.Series(True, index=df.index)
-mask &= df["salary_minimum"] >= salary_minimum_floor
-mask &= df["salary_maximum"] <= salary_maximum_ceiling
-mask &= df["minimumYearsExperience"] >= minimum_experience
-mask &= df["minimumYearsExperience"] <= maximum_experience
-mask &= df["average_salary"] >= average_salary_floor
-
-if selected_employment_types:
-    mask &= df["employmentTypes"].isin(selected_employment_types)
-
-if selected_categories:
-    mask &= df["category_names"].apply(
-        lambda cats: any(c in selected_categories for c in cats)
-    )
-
-if selected_position_levels:
-    mask &= df["positionLevels"].isin(selected_position_levels)
-
-if selected_job_statuses:
-    mask &= df["status_jobStatus"].isin(selected_job_statuses)
-
-if posted_on_behalf != "All":
-    mask &= df["metadata_isPostedOnBehalf"] == (posted_on_behalf == "True")
-
-filtered = df.loc[mask, TABLE_COLS].reset_index(drop=True)
-
-# ---- KPI row ----
-total_vacancies = filtered["numberOfVacancies"].sum()
-weighted_avg_salary = (
-    (filtered["average_salary"] * filtered["numberOfVacancies"]).sum() / total_vacancies
-    if total_vacancies
-    else None
-)
-
-total_applications = filtered["metadata_totalNumberJobApplication"].sum()
-total_views = filtered["metadata_totalNumberOfView"].sum()
-
-col1, col2, col3, col4, col5, col6 = st.columns(6)
-col1.metric("Matching postings", f"{len(filtered):,}")
-col2.metric(
-    "Average salary",
-    f"${weighted_avg_salary:,.0f}" if weighted_avg_salary is not None else "—",
-)
-col3.metric("Companies", f"{filtered['postedCompany_name'].nunique():,}")
-col4.metric("Total job applications", f"{total_applications:,.0f}")
-col5.metric("Total views", f"{total_views:,.0f}")
-col6.metric("Total vacancies", f"{total_vacancies:,.0f}")
-
-st.divider()
-
-# ---- Pie charts ----
-st.subheader("Breakdown of matching postings")
-
-
-def make_pie(series: pd.Series, title: str) -> go.Figure:
-    counts = series.dropna().value_counts()
-    if len(counts) > PIE_TOP_N:
-        top = counts.iloc[:PIE_TOP_N]
-        other_total = counts.iloc[PIE_TOP_N:].sum()
-        counts = pd.concat([top, pd.Series({"Other": other_total})])
-
-    colors = CATEGORICAL_PALETTE[: len(counts)]
-    if "Other" in counts.index:
-        colors = colors[: len(counts) - 1] + [OTHER_COLOR]
-
-    total = counts.sum()
-    legend_labels = [
-        f"{name} — {value / total:.1%} ({value:,})"
-        for name, value in counts.items()
-    ]
-
-    fig = go.Figure(
-        go.Pie(
-            labels=legend_labels,
-            values=counts.values,
-            marker=dict(colors=colors, line=dict(color=SURFACE, width=2)),
-            textinfo="none",
-            hovertext=counts.index,
-            hovertemplate="%{hovertext}<br>%{percent} — %{value:,} postings<extra></extra>",
-            sort=False,
-        )
-    )
-    fig.update_layout(
-        title=title,
-        height=420,
-        plot_bgcolor=SURFACE,
-        paper_bgcolor=SURFACE,
-        font=dict(color=TEXT_PRIMARY, family="system-ui, -apple-system, sans-serif"),
-        margin=dict(l=10, r=10, t=50, b=10),
-        legend=dict(orientation="v", yanchor="middle", y=0.5, font=dict(size=11)),
-    )
-    return fig
-
-
-if len(filtered):
-    pie_col1, pie_col2 = st.columns(2)
-    with pie_col1:
-        st.plotly_chart(
-            make_pie(filtered["positionLevels"], "Position level"),  use_container_width=True
-            #width="stretch"
-        )
-    with pie_col2:
-        st.plotly_chart(
-            make_pie(filtered["employmentTypes"], "Employment type"), width="stretch"
-        )
-else:
-    st.info("No postings match the current filters.")
-
-# ---- Main table ----
-st.divider()
-st.subheader("Job postings")
-
-table_col1, table_col2 = st.columns([3, 1])
-title_search = table_col1.text_input("Filter by title contains", value="", placeholder="e.g. engineer")
-show_job_post_id = table_col2.checkbox("Show Job Post ID", value=False)
-
-if title_search:
-    filtered = filtered[filtered["title"].str.contains(title_search, case=False, na=False)]
-
-table_column_order = [
-    "postedCompany_name",
-    "positionLevels",
-    "title",
-    "numberOfVacancies",
-    "employmentTypes",
-    "minimumYearsExperience",
-    "salary_maximum",
-    "salary_minimum",
-    "average_salary",
+# Apply Filters
+filtered_df = df[
+    (df["Industry"].isin(industry)) &
+    (df["employmentTypes"].isin(employment)) &
+    (df["positionLevels"].isin(position)) &
+    (df["PostingYear"].isin(year))
 ]
-if show_job_post_id:
-    table_column_order.append("metadata_jobPostId")
+#==============================================================
 
-st.dataframe(
-    filtered,
-    #width="stretch", 
-    use_container_width=True,
-    hide_index=True,
-    column_order=table_column_order,
-    column_config={
-        "postedCompany_name": st.column_config.TextColumn("Company"),
-        "positionLevels": st.column_config.TextColumn("Position level"),
-        "title": st.column_config.TextColumn("Title", width="large"),
-        "numberOfVacancies": st.column_config.NumberColumn("Vacancies", format="%d"),
-        "employmentTypes": st.column_config.TextColumn("Employment type"),
-        "minimumYearsExperience": st.column_config.NumberColumn("Min. years experience", format="%d"),
-        "salary_maximum": st.column_config.NumberColumn("Salary max", format="$%,d"),
-        "salary_minimum": st.column_config.NumberColumn("Salary min", format="$%,d"),
-        "average_salary": st.column_config.NumberColumn("Avg salary", format="$%,.0f"),
-        "metadata_jobPostId": st.column_config.TextColumn("Job Post ID"),
-    },
+# =====================================================
+# APPLY FILTERS
+# =====================================================
+
+if industry:
+    df = df[df["Industry"].isin(industry)]
+
+if employment:
+    df = df[df["employmentTypes"].isin(employment)]
+
+#----------------------------------------------
+# =====================================================
+# KPI SECTION
+# =====================================================
+st.markdown("""
+<style>
+.kpi-container {
+    background-color: #EAF4FF;
+    padding: 20px;
+    border-radius: 15px;
+    border: 2px solid #B3D9FF;
+    margin-bottom: 20px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+st.markdown("---")
+st.subheader("📊 Singapore Job Market Snapshot")
+
+total_jobs = len(df)
+avg_salary = df["average_salary"].fillna(0).mean()
+
+total_companies = df["postedCompany_name"].nunique()
+
+avg_competition = df["CompetitionIndex"].fillna(0).mean()
+
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric("💼 Total Job Postings", f"{total_jobs:,}")
+
+col2.metric("💰 Avg Monthly Salary", f"S${avg_salary:,.0f}")
+col3.metric("🏢 Companies Hiring", f"{total_companies:,}")
+col4.metric("📈 Competition Index", f"{avg_competition:.2f}")
+
+# =====================================================
+# Business Question 1:  TOP PAYING INDUSTRIES
+# =====================================================
+
+st.markdown("---")
+st.subheader("💰 Business Question 1")
+st.markdown("""
+### Which industries offer the highest average salaries?
+
+This visualization compares the **average monthly salary** across industries
+to identify the highest-paying sectors in Singapore.
+""")
+
+salary_by_industry = (
+    df.groupby("Industry")["average_salary"]
+      .mean()
+      .sort_values(ascending=False)
+      .head(10)
+      .reset_index()
 )
+
+fig = px.bar(
+    salary_by_industry,
+    x="average_salary",
+    y="Industry",
+    orientation="h",
+    color="average_salary",
+    color_continuous_scale="Blues",
+    text="average_salary",
+    title="Top 10 Industries by Average Monthly Salary"
+)
+
+fig.update_traces(
+    texttemplate="$%{text:,.0f}",
+    textposition="outside"
+)
+
+fig.update_layout(
+
+    height=600,
+
+    xaxis_title="Average Monthly Salary (SGD)",
+
+    yaxis_title="Industry",
+
+    yaxis=dict(categoryorder="total ascending"),
+
+    title_x=0.15,
+
+    margin=dict(l=20, r=20, t=60, b=20),
+
+    coloraxis_showscale=False
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+#Biz insights for Biz Question 1
+
+highest = salary_by_industry.iloc[0]
+second = salary_by_industry.iloc[1]
+third = salary_by_industry.iloc[2]
+
+st.markdown(f"""
+<div style="
+background-color:#184d2b;
+padding:20px;
+border-radius:10px;
+border-left:6px solid #4CAF50;
+">
+
+<h3 style="color:#7CFC98;">📊 Business Insight</h3>
+
+<p style="font-size:19px; color:white;">
+
+The <b>{highest['Industry']}</b> industry offers the highest average monthly salary at approximately
+<span style="font-size:24px; font-weight:bold; color:#FFD54F;">
+S${highest['average_salary']:,.0f}
+</span>
+
+</p>
+
+<p style="font-size:18px; color:white;">
+The next highest-paying industries are
+<b>{second['Industry']}</b>
+(<span style="font-size:18px; font-weight:bold; color:#FFD54F;">
+S${second['average_salary']:,.0f}
+</span>)
+and
+<b>{third['Industry']}</b>
+(<span style="font-size:18px; font-weight:bold; color:#FFD54F;">
+S${third['average_salary']:,.0f}
+</span>)
+
+</div>
+""", unsafe_allow_html=True)
+
+#=================
+# Biz Qn 2: Hiring Demand Analysis
+#=================
+
+st.markdown("---")
+st.subheader("💼 Business Question 2")
+st.markdown("""
+### 2. Which industries have the greatest hiring demand?
+
+This visualization compares the **number of job postings** across industries
+to identify the sectors with the highest hiring activity in Singapore based on the number of job postings..
+""")
+st.subheader("💼 Hiring Demand by Industry")
+
+# Hiring demand by industry
+hiring_by_industry = (
+    df.groupby("Industry")
+      .size()
+      .reset_index(name="JobCount")
+      .sort_values("JobCount", ascending=False)
+      .head(10)
+)
+fig = px.bar(
+    hiring_by_industry,
+    x="JobCount",
+    y="Industry",
+    orientation="h",
+    text="JobCount",
+    color="JobCount",
+    color_continuous_scale="Blues",
+    title="Top 10 Industries by Hiring Demand"
+)
+
+fig.update_layout(
+    yaxis=dict(categoryorder="total ascending"),
+    xaxis_title="Number of Job Postings",
+    yaxis_title="Industry",
+    template="plotly_dark",
+    height=600
+)
+
+fig.update_traces(textposition="outside")
+
+st.plotly_chart(fig, use_container_width=True)
+
+#Biz insights for  biz Question 2
+
+highest = hiring_by_industry.iloc[0]
+second = hiring_by_industry.iloc[1]
+third = hiring_by_industry.iloc[2]
+
+st.markdown(f"""
+<div style="
+background-color:#184d2b;
+padding:20px;
+border-radius:10px;
+border-left:6px solid #4CAF50;
+">
+<h3 style="color:#7CFC98;">📈 Business Insight</h3>
+<p style="font-size:19px; color:white;">
+The <b>{highest['Industry']}</b> industry has the highest hiring demand with
+<span style="font-size:24px; font-weight:bold; color:#FFD54F;">
+{highest['JobCount']:,}
+</span>
+job postings.
+</p>
+<p style="font-size:18px; color:white;">
+It is followed by
+<b>{second['Industry']}</b>
+<span style="font-size:18px; font-weight:bold; color:#FFD54F;">
+{second['JobCount']:,}
+</span> jobs and
+<b>{third['Industry']}</b>
+<span style="font-size:18px; font-weight:bold; color:#FFD54F;">
+{third['JobCount']:,}
+</span> jobs.
+
+</p>
+
+</div>
+""", unsafe_allow_html=True)
+
+#============================
+# Biz Question 3: Application Trends: Which industries receive the most applications?
+#===========================
+
+st.markdown("---")
+st.subheader("📥 Business Question 3")
+st.markdown("""
+### 3. Which industries receive the most applications? """)
+
+st.write(
+    "This visualization compares the average number of applications received per job posting across industries."
+)
+st.subheader("Application Trend 📥")
+
+#Prepare Data for Application Trend
+application_by_industry = (
+    df.groupby("Industry", as_index=False)["metadata_totalNumberJobApplication"]
+      .mean()
+      .sort_values("metadata_totalNumberJobApplication", ascending=False)
+      .head(10)
+)
+fig = px.bar(
+    application_by_industry,
+    x="metadata_totalNumberJobApplication",
+    y="Industry",
+    orientation="h",
+    color="metadata_totalNumberJobApplication",
+    color_continuous_scale="Purples",
+    text="metadata_totalNumberJobApplication",
+    title="Top 10 Industries by Average Job Applications"
+)
+
+fig.update_traces(texttemplate="%{text:.0f}", textposition="outside")
+
+fig.update_layout(
+    template="plotly_dark",
+    height=600,
+    coloraxis_showscale=False,
+    yaxis=dict(categoryorder="total ascending"),
+    xaxis_title="Average Applications per Job",
+    yaxis_title="Industry"
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# Biz Insights- Application Trend
+
+highest = application_by_industry.iloc[0]
+second = application_by_industry.iloc[1]
+third = application_by_industry.iloc[2]
+
+st.markdown(f"""
+<div style="
+background-color:#184d2b;
+padding:20px;
+border-radius:10px;
+border-left:6px solid #4CAF50;
+">
+<h3 style="color:#7CFC98;">📈 Business Insight</h3>
+<p style="font-size:19px; color:white;">
+The <b>{highest['Industry']}</b> industry attracts the highest average number of job applications
+<span style="font-size:24px; font-weight:bold; color:#FFD54F;">
+{highest['metadata_totalNumberJobApplication']:.0f}
+</span> indicating the strongest demand from job seekers.
+</p>
+<p style="font-size:18px; color:white;">
+It is followed by
+<b>{second['Industry']}</b>
+<span style="font-size:18px; font-weight:bold; color:#FFD54F;">
+{second['metadata_totalNumberJobApplication']:.0f}
+</span> jobs and
+<b>{third['Industry']}</b>
+<span style="font-size:18px; font-weight:bold; color:#FFD54F;">
+{third['metadata_totalNumberJobApplication']:.0f}
+</span> jobs.
+
+</p>
+
+</div>
+""", unsafe_allow_html=True)
+
+#=============
+# Biz Question 4: Competition Index: Which industries are hardest to fill?
+#=============
+
+st.markdown("---")
+st.subheader("🔍 Business Question 4")
+st.markdown("""
+### 4. Which industries are hardest to fill?
+""")
+
+st.write(
+    "This visualization compares the competition index across industries to identify the most challenging sectors to hire in."
+)
+st.subheader("Competition Index 🔍")
+
+#Data Preparation for Competition Index
+competition = (
+    df.groupby("Industry", as_index=False)["CompetitionIndex"]
+      .mean()
+      .sort_values("CompetitionIndex", ascending=False)
+      .head(10)
+)
+
+fig = px.bar(
+    competition,
+    x="CompetitionIndex",
+    y="Industry",
+    orientation="h",
+    color="CompetitionIndex",
+    color_continuous_scale="Reds",
+    text="CompetitionIndex",
+    title="Top 10 Most Competitive Industries"
+)
+
+fig.update_traces(
+    texttemplate="%{text:.2f}",
+    textposition="outside"
+)
+
+fig.update_layout(
+    template="plotly_dark",
+    height=600,
+    coloraxis_showscale=False,
+    yaxis=dict(categoryorder="total ascending")
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+
+# Biz Insights- Competition Index
+
+highest = competition.iloc[0]
+second = competition.iloc[1]
+third = competition.iloc[2]
+
+st.markdown(f"""
+<div style="
+background-color:#184d2b;
+padding:20px;
+border-radius:10px;
+border-left:6px solid #4CAF50;
+">
+<h3 style="color:#7CFC98;">📈 Business Insight</h3>
+<p style="font-size:19px; color:white;">
+The <b>{highest['Industry']}</b> industry has the highest competition index  
+<span style="font-size:24px; font-weight:bold; color:#FFD54F;">
+{highest['CompetitionIndex']:.2f}
+</span> indicating that each vacancy receives comparatively more applications than other industries.
+</p>
+<p style="font-size:18px; color:white;">
+It is followed by
+<b>{second['Industry']}</b>
+<span style="font-size:18px; font-weight:bold; color:#FFD54F;">
+{second['CompetitionIndex']:.2f}
+</span> and
+<b>{third['Industry']}</b>
+<span style="font-size:18px; font-weight:bold; color:#FFD54F;">
+{third['CompetitionIndex']:.2f}
+</span> jobs.
+
+</p>
+
+</div>
+""", unsafe_allow_html=True)
+
+#=============
+# Biz Question 5: Hiring Trend: How has hiring changed over time?
+#=============
+
+st.markdown("---")
+st.subheader("🔍 Business Question 5")
+st.markdown("""
+### 5. How has hiring changed over time?
+""")
+
+st.write(
+    "This visualization checks the hiring trend over time."
+)
+st.subheader("Hiring Trend 🔍")
+
+#Data Preparation for Hiring Trend
+
+# Create YearMonth for trend analysis
+# Create YearMonth
+df["YearMonth"] = (
+    pd.to_datetime(df["metadata_originalPostingDate"])
+      .dt.to_period("M")
+      .astype(str)
+)
+
+# Monthly hiring trend
+hiring_trend = (
+    df.groupby("YearMonth")
+      .size()
+      .reset_index(name="Jobs")
+)
+
+fig = px.line(
+    hiring_trend,
+    x="YearMonth",
+    y="Jobs",
+    markers=True,
+    title="Hiring Trend"
+)
+
+fig.update_layout(
+    xaxis_title="Month",
+    yaxis_title="Number of Job Postings"
+)
+
+st.plotly_chart(
+    fig,
+    use_container_width=True,
+    key="trend_chart"
+)
+fig.update_traces(
+    line=dict(color="#00B4D8", width=4),
+    marker=dict(size=8)
+)
+# Biz Insights- Hiring Trend
+
+highest = hiring_trend.sort_values("Jobs", ascending=False).iloc[0]
+second = hiring_trend.sort_values("Jobs", ascending=False).iloc[1]
+third = hiring_trend.sort_values("Jobs", ascending=False).iloc[2]
+
+st.markdown(f"""
+<div style="
+background-color:#184d2b;
+padding:20px;
+border-radius:10px;
+border-left:6px solid #4CAF50;
+">
+
+<h3 style="color:#7CFC98;">📈 Business Insight</h3>
+
+<p style="font-size:19px; color:white;">
+Hiring activity <b>peaked in {highest['YearMonth']}</b> with
+<span style="font-size:24px; font-weight:bold; color:#FFD54F;">
+{highest['Jobs']:,}
+</span>
+job postings.
+</p>
+
+<p style="font-size:18px; color:white;">
+The next strongest hiring months were
+<b>{second['YearMonth']}</b>
+(<span style="color:#FFD54F;">{second['Jobs']:,}</span>)
+and
+<b>{third['YearMonth']}</b>
+(<span style="color:#FFD54F;">{third['Jobs']:,}</span>),
+indicating sustained recruitment demand during this period.
+</p>
+
+</div>
+""", unsafe_allow_html=True)
+
+
+##### Conclusion ###
+st.markdown("""
+<div style="
+background-color:#153B73;
+padding:25px;
+border-radius:10px;
+border-left:8px solid #5DADE2;
+">
+
+<h2 style="color:#A9D6FF; font-size:34px;">
+📌 Key Business Conclusions:
+</h2>
+
+<div style="font-size:24px; color:white; line-height:2.0;">
+💰<b>Legal, Risk Management and Banking & Finance</b> offer the highest average monthly salaries.
+</div>
+
+<div style="font-size:24px; color:white; line-height:2.0; margin-top:15px;">
+💼 Hiring demand remains strong across key industries, with sustained recruitment activity over time.
+</div>
+
+<div style="font-size:24px; color:white; line-height:2.0; margin-top:15px;">
+📥Competition differs significantly across industries, indicating varying levels of job seeker interest.
+</div>
+
+<div style="font-size:24px; color:white; line-height:2.0; margin-top:15px;">
+🔍This dashboard enables interactive exploration of salary, hiring demand, competition, and employment patterns to support informed career and business decisions.
+</div>
+
+</div>
+""", unsafe_allow_html=True)
