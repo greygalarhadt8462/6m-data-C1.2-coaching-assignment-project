@@ -248,32 +248,86 @@ competition_index = total_applications / total_vacancies if total_vacancies else
 
 COMPETITION_INDEX_COLOR = "#4a3aa7"  # violet accent, sets this derived metric apart from the rest
 
-col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+# col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+# col1.metric("Matching postings", f"{len(filtered):,}")
+# col2.metric(
+#     "Average salary",
+#     f"${weighted_avg_salary:,.0f}" if weighted_avg_salary is not None else "—",
+# )
+# col3.metric("Companies", f"{filtered['postedCompany_name'].nunique():,}")
+# col4.metric("Total job applications", f"{total_applications:,.0f}")
+# col5.metric("Total views", f"{total_views:,.0f}")
+# col6.metric("Total vacancies", f"{total_vacancies:,.0f}")
+# with col7:
+#     st.markdown(
+#         f"""
+#         <div style="display:flex; flex-direction:column; gap:2px;">
+#             <div style="font-size:0.875rem; color:rgba(11,11,11,0.6);">Competition index</div>
+#             <div style="font-size:2.25rem; font-weight:600; line-height:1.2; color:{COMPETITION_INDEX_COLOR};">
+#                 {f"{competition_index:,.1f}" if competition_index is not None else "—"}
+#             </div>
+#         </div>
+#         """,
+#         unsafe_allow_html=True,
+#     )
+#     st.caption(
+#         "Total job applications ÷ total vacancies for the filtered postings — "
+#         "how many applicants are competing per opening. Higher = more competitive."
+#     )
+# ---------- ROW 1 ----------
+col1, col2, col3, col4 = st.columns(4)
+
 col1.metric("Matching postings", f"{len(filtered):,}")
+
 col2.metric(
     "Average salary",
     f"${weighted_avg_salary:,.0f}" if weighted_avg_salary is not None else "—",
 )
-col3.metric("Companies", f"{filtered['postedCompany_name'].nunique():,}")
-col4.metric("Total job applications", f"{total_applications:,.0f}")
-col5.metric("Total views", f"{total_views:,.0f}")
-col6.metric("Total vacancies", f"{total_vacancies:,.0f}")
+
+col3.metric(
+    "Companies",
+    f"{filtered['postedCompany_name'].nunique():,}"
+)
+
+col4.metric(
+    "Total job applications",
+    f"{total_applications:,.0f}"
+)
+
+# ---------- ROW 2 ----------
+col5, col6, col7, col8 = st.columns(4)
+
+# Below Matching postings
+col5.metric(
+    "Total views",
+    f"{total_views:,.0f}"
+)
+
+# Below Average salary
+col6.metric(
+    "Total vacancies",
+    f"{total_vacancies:,.0f}"
+)
+
+# Below Companies
 with col7:
-    st.markdown(
-        f"""
-        <div style="display:flex; flex-direction:column; gap:2px;">
-            <div style="font-size:0.875rem; color:rgba(11,11,11,0.6);">Competition index</div>
-            <div style="font-size:2.25rem; font-weight:600; line-height:1.2; color:{COMPETITION_INDEX_COLOR};">
-                {f"{competition_index:,.1f}" if competition_index is not None else "—"}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.metric(
+        "Competition index",
+        f"{competition_index:,.1f}" if competition_index is not None else "—"
     )
+
     st.caption(
-        "Total job applications ÷ total vacancies for the filtered postings — "
-        "how many applicants are competing per opening. Higher = more competitive."
+        "Total job applications ÷ total vacancies — "
+        "applicants competing per opening. Higher = more competitive."
     )
+
+# col8 deliberately left empty
+
+st.caption(
+     "Total job applications ÷ total vacancies — "
+     "how many applicants are competing per opening. "
+     "Higher = more competitive."
+   )
 
 st.divider()
 
@@ -286,7 +340,7 @@ def make_category_salary_bar(series: pd.Series) -> go.Figure:
             x=series.values,
             y=series.index,
             orientation="h",
-            marker=dict(color=CATEGORICAL_PALETTE[0], cornerradius=4),
+            marker=dict(color=CATEGORICAL_PALETTE[1], cornerradius=4),
             text=[f"${v:,.0f}" for v in series.values],
             textposition="outside",
             cliponaxis=False,
@@ -305,9 +359,22 @@ def make_category_salary_bar(series: pd.Series) -> go.Figure:
             gridcolor=GRIDLINE,
             zeroline=False,
             tickformat="$,.0f",
+            tickfont=dict(color="black"),
+            title_font=dict(color="black"),
         ),
         yaxis=dict(title=None),
+        
     )
+
+    fig.update_xaxes(
+        tickfont_color="black",
+        title_font_color="black"
+    )
+    fig.update_yaxes(
+        tickfont_color="black"
+    )
+     
+   
     return fig
 
 
